@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+from llama_cloud_services import LlamaCloudIndex
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -70,17 +71,25 @@ def get_or_create_index_name(user_id: str) -> str:
 
 def query_llamacloud(index_name: str, query: str) -> str:
     """
-    TODO: replace with real LlamaCloud/LlamaIndex call using:
-      - LLAMACLOUD_API_KEY
-      - LLAMACLOUD_PROJECT
-      - LLAMACLOUD_ORG
+    Create or connect to a LlamaCloud index by name and run the query.
     """
-    return (
-        f"[DEMO ANSWER] Index={index_name}, "
-        f"Project={LLAMACLOUD_PROJECT}, Org={LLAMACLOUD_ORG}, "
-        f"Query={query[:200]}"
+    if not LLAMACLOUD_API_KEY:
+        raise RuntimeError("LLAMACLOUD_API_KEY is not set")
+
+    # Connect to or create the managed index in LlamaCloud
+    index = LlamaCloudIndex(
+        index_name,
+        project_name=LLAMACLOUD_PROJECT,
+        api_key=LLAMACLOUD_API_KEY,
+        # optionally: base_url=EU_BASE_URL or similar if you use a non-default region
     )
 
+    # Get a query engine and run the query
+    query_engine = index.as_query_engine()
+    response = query_engine.query(query)
+
+    # Convert response to plain text
+    return str(response)
 
 # ---------------------------
 # Pydantic models
