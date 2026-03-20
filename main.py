@@ -2,20 +2,22 @@
 
 import os
 import sqlite3
-from llama_cloud_services import LlamaCloudIndex
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from llama_cloud_services import LlamaCloudIndex  # LlamaCloud SDK[web:28]
+
 # ---------------------------
-# Config (env vars)
+# Config (from environment)
 # ---------------------------
 
 LLAMACLOUD_API_KEY = os.getenv("LLAMACLOUD_API_KEY", "")
-LLAMACLOUD_PROJECT = os.getenv("LLAMACLOUD_PROJECT", "default-project")
-LLAMACLOUD_ORG = os.getenv("LLAMACLOUD_ORG", "default-org")
+LLAMACLOUD_PROJECT = os.getenv("LLAMACLOUD_PROJECT", "default")
+# Optional: if you use EU or another region, you can also set a base URL env
+LLAMACLOUD_BASE_URL = os.getenv("LLAMACLOUD_BASE_URL", None)
 
 DB_PATH = os.getenv("INDEX_DB_PATH", "user_indexes.db")
 
@@ -25,6 +27,7 @@ DB_PATH = os.getenv("INDEX_DB_PATH", "user_indexes.db")
 # ---------------------------
 
 def init_db() -> None:
+    """Create the user → index mapping table if needed."""
     conn = sqlite3.connect(DB_PATH)
     try:
         cur = conn.cursor()
@@ -42,6 +45,7 @@ def init_db() -> None:
 
 
 def get_or_create_index_name(user_id: str) -> str:
+    """Look up or create a stable index_name for this user_id."""
     conn = sqlite3.connect(DB_PATH)
     try:
         cur = conn.cursor()
@@ -66,23 +70,31 @@ def get_or_create_index_name(user_id: str) -> str:
 
 
 # ---------------------------
-# LlamaCloud query stub
+# LlamaCloud query function
 # ---------------------------
 
 def query_llamacloud(index_name: str, query: str) -> str:
     """
-    Create or connect to a LlamaCloud index by name and run the query.
+    Connect to (and implicitly create if needed) a LlamaCloud index by name,
+    then run a retrieval query against it and return the answer text.
     """
     if not LLAMACLOUD_API_KEY:
         raise RuntimeError("LLAMACLOUD_API_KEY is not set")
 
-    # Connect to or create the managed index in LlamaCloud
-    index = LlamaCloudIndex(
-        index_name,
-        project_name=LLAMACLOUD_PROJECT,
-        api_key=LLAMACLOUD_API_KEY,
-        # optionally: base_url=EU_BASE_URL or similar if you use a non-default region
-    )
+    # Create / attach to managed index in LlamaCloud[web:28][web:108]
+    if LLAMACLOUD_BASE_URL:
+        index = LlamaCloudIndex(
+            index_name,
+            project_name=LLAMACLOUD_PROJECT,
+            api_key=LLAMACLOUD_API_KEY,
+            base_url=LLAMACLOUD_BASE_URL,
+        )
+    else:
+        index = LlamaCloudIndex(
+            index_name,
+            project_name=LLAMACLOUD_PROJECT,
+            api_key=LLAMACLOUD_API_KEY,
+        )
 
     # Get a query engine and run the query
     query_engine = index.as_query_engine()
@@ -90,6 +102,7 @@ def query_llamacloud(index_name: str, query: str) -> str:
 
     # Convert response to plain text
     return str(response)
+
 
 # ---------------------------
 # Pydantic models
@@ -137,6 +150,8 @@ async def rag_tool(payload: RagRequest) -> RagResponse:
       "user_id": "...",
       "query": "..."
     }
+
+    Auto-creates a logical index for this user_id and queries it in LlamaCloud.
     """
     if not payload.user_id or not payload.query:
         raise HTTPException(status_code=400, detail="user_id and query are required")
