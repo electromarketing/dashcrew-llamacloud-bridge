@@ -7,22 +7,12 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from fastmcp import FastMCP  # NEW
-
-# ---------------------------
-# Config (from environment)
-# ---------------------------
 
 LLAMACLOUD_API_KEY = os.getenv("LLAMACLOUD_API_KEY", "")
 LLAMACLOUD_PROJECT = os.getenv("LLAMACLOUD_PROJECT", "default-project")
 LLAMACLOUD_ORG = os.getenv("LLAMACLOUD_ORG", "default-org")
-
 DB_PATH = os.getenv("INDEX_DB_PATH", "user_indexes.db")
 
-
-# ---------------------------
-# SQLite helpers
-# ---------------------------
 
 def init_db() -> None:
     conn = sqlite3.connect(DB_PATH)
@@ -65,10 +55,6 @@ def get_or_create_index_name(user_id: str) -> str:
         conn.close()
 
 
-# ---------------------------
-# LlamaCloud query stub
-# ---------------------------
-
 def query_llamacloud(index_name: str, query: str) -> str:
     return (
         f"[DEMO ANSWER] Index={index_name}, "
@@ -76,10 +62,6 @@ def query_llamacloud(index_name: str, query: str) -> str:
         f"Query={query[:200]}"
     )
 
-
-# ---------------------------
-# Pydantic models
-# ---------------------------
 
 class RagRequest(BaseModel):
     user_id: str
@@ -91,10 +73,6 @@ class RagResponse(BaseModel):
     index_name: str
 
 
-# ---------------------------
-# Lifespan
-# ---------------------------
-
 @asynccontextmanager
 async def app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     print("FastAPI startup: init DB")
@@ -103,17 +81,13 @@ async def app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     print("FastAPI shutdown")
 
 
-# ---------------------------
-# FastAPI app (your API)
-# ---------------------------
-
-api = FastAPI(
-    title="TypingMind LlamaCloud Bridge (HTTP + MCP)",
+app = FastAPI(
+    title="TypingMind LlamaCloud Bridge (HTTP)",
     lifespan=app_lifespan,
 )
 
 
-@api.post("/plugin/rag", response_model=RagResponse)
+@app.post("/plugin/rag", response_model=RagResponse)
 async def rag_tool(payload: RagRequest) -> RagResponse:
     if not payload.user_id or not payload.query:
         raise HTTPException(status_code=400, detail="user_id and query are required")
@@ -122,39 +96,6 @@ async def rag_tool(payload: RagRequest) -> RagResponse:
     answer = query_llamacloud(index_name=index_name, query=payload.query)
     return RagResponse(answer=answer, index_name=index_name)
 
-
-# ---------------------------
-# MCP server using FastMCP
-# ---------------------------
-
-mcp = FastMCP("LlamaCloud RAG MCP")  # Name shown to MCP clients
-
-
-@mcp.tool()  # note the ()
-def llamacloud_rag(user_id: str, query: str) -> dict:
-    """
-    Per-user LlamaCloud RAG.
-    Auto-creates an index for this user_id and queries it.
-    """
-    index_name = get_or_create_index_name(user_id)
-    answer = query_llamacloud(index_name=index_name, query=query)
-    return {
-        "answer": answer,
-        "index_name": index_name,
-    }
-
-# Create the MCP ASGI app and mount it at /mcp
-mcp_app = mcp.http_app(path="/")  # FastMCP HTTP app root[web:40]
-
-# Mount MCP at /mcp on the same FastAPI app
-api.mount("/mcp", mcp_app)  # MCP endpoint: /mcp
-
-
-# ---------------------------
-# ASGI app entrypoint
-# ---------------------------
-
-app = api  # This is what uvicorn runs
 
 if __name__ == "__main__":
     import uvicorn
