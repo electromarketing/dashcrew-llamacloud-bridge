@@ -6,8 +6,8 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException
-from fastapi_mcp import FastApiMCP
 from pydantic import BaseModel
+from fastmcp import FastMCP  # NEW
 
 # ---------------------------
 # Config (from environment)
@@ -18,11 +18,6 @@ LLAMACLOUD_PROJECT = os.getenv("LLAMACLOUD_PROJECT", "default-project")
 LLAMACLOUD_ORG = os.getenv("LLAMACLOUD_ORG", "default-org")
 
 DB_PATH = os.getenv("INDEX_DB_PATH", "user_indexes.db")
-
-PUBLIC_BASE_URL = os.getenv(
-    "PUBLIC_BASE_URL",
-    "https://typingmind-llamacloud-bridge.example.com",  # update after deploy
-)
 
 
 # ---------------------------
@@ -75,15 +70,6 @@ def get_or_create_index_name(user_id: str) -> str:
 # ---------------------------
 
 def query_llamacloud(index_name: str, query: str) -> str:
-    """
-    Stub: replace with real LlamaCloud/LlamaIndex query.
-
-    Here you will:
-    - Use LLAMACLOUD_API_KEY / PROJECT / ORG
-    - Attach to or create the LlamaCloud index "index_name"
-    - Run the query and return the answer text
-    """
-    # TODO: implement using LlamaIndex Cloud SDK or HTTP.
     return (
         f"[DEMO ANSWER] Index={index_name}, "
         f"Project={LLAMACLOUD_PROJECT}, Org={LLAMACLOUD_ORG}, "
@@ -106,74 +92,71 @@ class RagResponse(BaseModel):
 
 
 # ---------------------------
-# Lifespans
+# Lifespan
 # ---------------------------
 
 @asynccontextmanager
-async def fastapi_lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     print("FastAPI startup: init DB")
     init_db()
     yield
     print("FastAPI shutdown")
 
 
-@asynccontextmanager
-async def mcp_lifespan() -> AsyncIterator[None]:
-    print("MCP startup")
-    yield
-    print("MCP shutdown")
-
-
 # ---------------------------
-# FastAPI app
+# FastAPI app (your API)
 # ---------------------------
 
-app = FastAPI(
-    title="TypingMind LlamaCloud Bridge",
-    lifespan=fastapi_lifespan,
+api = FastAPI(
+    title="TypingMind LlamaCloud Bridge (HTTP + MCP)",
+    lifespan=app_lifespan,
 )
 
 
-# ---------------------------
-# REST endpoint (optional)
-# ---------------------------
-
-@app.post("/plugin/rag", response_model=RagResponse)
+@api.post("/plugin/rag", response_model=RagResponse)
 async def rag_tool(payload: RagRequest) -> RagResponse:
-    """
-    Per-user RAG endpoint:
-    - Auto-creates logical index per user_id
-    - Queries that index with 'query'
-    """
     if not payload.user_id or not payload.query:
         raise HTTPException(status_code=400, detail="user_id and query are required")
 
     index_name = get_or_create_index_name(payload.user_id)
     answer = query_llamacloud(index_name=index_name, query=payload.query)
-
     return RagResponse(answer=answer, index_name=index_name)
 
 
 # ---------------------------
-# MCP server mounted on /mcp
+# MCP server using FastMCP
 # ---------------------------
 
-mcp = FastApiMCP(
-    app,
-    name="LlamaCloud RAG MCP",
-    description=(
-        "Per-user LlamaCloud RAG tool. Accepts user_id + query, "
-        "auto-creates a dedicated index per TypingMind user, and queries it."
-    ),
-)
+mcp = FastMCP("LlamaCloud RAG MCP")  # Name shown to MCP clients
 
-mcp.mount()
+
+@mcp.tool
+def llamacloud_rag(user_id: str, query: str) -> dict:
+    """
+    Per-user LlamaCloud RAG.
+    Auto-creates an index for this user_id and queries it.
+    """
+    index_name = get_or_create_index_name(user_id)
+    answer = query_llamacloud(index_name=index_name, query=query)
+    return {
+        "answer": answer,
+        "index_name": index_name,
+    }
+
+
+# Create the MCP ASGI app and mount it at /mcp
+mcp_app = mcp.http_app(path="/")  # FastMCP HTTP app root[web:40]
+
+# Mount MCP at /mcp on the same FastAPI app
+api.mount("/mcp", mcp_app)  # MCP endpoint: /mcp
+
 
 # ---------------------------
-# Dev entrypoint
+# ASGI app entrypoint
 # ---------------------------
+
+app = api  # This is what uvicorn runs
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)
