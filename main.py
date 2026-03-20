@@ -165,10 +165,8 @@ mcp = FastApiMCP(
         "Per-user LlamaCloud RAG tool. Accepts user_id + query, "
         "auto-creates a dedicated index per TypingMind user, and queries it."
     ),
-    lifespan=mcp_lifespan,
 )
 
-# Mount HTTP MCP server at /mcp (name may be mount or mount_http depending on your version)
 mcp.mount()
 
 # ---------------------------
