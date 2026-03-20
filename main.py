@@ -130,7 +130,7 @@ async def rag_tool(payload: RagRequest) -> RagResponse:
 mcp = FastMCP("LlamaCloud RAG MCP")  # Name shown to MCP clients
 
 
-@mcp.tool
+@mcp.tool()  # note the ()
 def llamacloud_rag(user_id: str, query: str) -> dict:
     """
     Per-user LlamaCloud RAG.
@@ -142,7 +142,6 @@ def llamacloud_rag(user_id: str, query: str) -> dict:
         "answer": answer,
         "index_name": index_name,
     }
-
 
 # Create the MCP ASGI app and mount it at /mcp
 mcp_app = mcp.http_app(path="/")  # FastMCP HTTP app root[web:40]
