@@ -57,5 +57,6 @@ def llamacloud_rag(user_id: str, query: str) -> dict:
 
 
 if __name__ == "__main__":
-    # Run as a standalone HTTP MCP server on port 8081, path /mcp
-    mcp.run(transport="http", host="0.0.0.0", port=8081, path="/mcp")
+    # Run HTTP MCP server with defaults; platform controls host/port
+    mcp.run(transport="http")
+
